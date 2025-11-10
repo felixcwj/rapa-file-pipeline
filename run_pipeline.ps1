@@ -1,26 +1,48 @@
-# Get the directory where the script is located.
-$ScriptDir = $PSScriptRoot
+# --- User-Friendly File Lister ---
+# This script interactively asks for connection and search details.
 
-# 1. Define the output CSV file path (will be saved in the same folder as the script).
-$OutputFile = "$ScriptDir\rapa_file_list_FOR_EXCEL.csv"
+# 1. Ask the user for connection details
+Write-Host "--- NAS Connection Details ---"
+$NasAddress = Read-Host "Enter NAS Address (e.g., my.nas.com)"
+$SshUser = Read-Host "Enter User ID (e.g., admin)"
+$SshPortInput = Read-Host "Enter SSH Port (default is 22)"
+$TargetPath = Read-Host "Enter Target Path to search (e.g., /volume1/photos)"
 
-Write-Host "Searching for file list on NAS and saving to an Excel-compatible CSV..."
-Write-Host "Output file location: $OutputFile"
+# Set default port if user just presses Enter
+$SshPort = if ([string]::IsNullOrWhiteSpace($SshPortInput)) { 22 } else { $SshPortInput }
+
+# 2. Ask the user for file types
+Write-Host "`n--- Search Details ---"
+$FileTypesInput = Read-Host "Enter file types, separated by commas (e.g., *.mp4, *.jpg, *.png)"
+
+# 3. Define the output file name
+$OutputFile = "$PSScriptRoot\NAS_File_List_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
 
 
-# 2. Execute the 'find' command on the NAS via SSH (Port 2022).
-#    The output is piped '|' directly to Set-Content.
-#    Set-Content saves the result to $OutputFile with UTF-8-BOM encoding (for Excel).
+# 4. Build the dynamic 'find' command
+# Split the user input string "*,mp4, *.jpg" into an array
+$typesArray = $FileTypesInput.Split(',')
 
+# Create the find options (e.g., "-iname '*.mp4' -o -iname '*.jpg'")
+$findOptions = $typesArray | ForEach-Object { "-iname '$($_.Trim())'" }
+$findCommandPart = $findOptions -join " -o "
+
+# Assemble the final 'find' command string
+$fullFindCommand = "find $TargetPath -not -path '*@eaDir*' \( $findCommandPart \)"
+
+Write-Host "`nSearching... please wait."
+
+# 5. Execute the command and save the file
 try {
-    Write-Host "Attempting to connect to NAS (Port 2022). Please enter password (Rapa2025!)..."
+    Write-Host "Attempting to connect to $NasAddress. Please enter password for $SshUser..."
     
-    ssh -p 2022 DOB@rapa2025-2.synology.me "find /volume1/초기데이터_검증용 -not -path '*@eaDir*' \( -iname '*.mp4' -o -iname '*.jpg' \)" | Set-Content -Path $OutputFile -Encoding Utf8BOM
+    # Execute the dynamic command and pipe output to an Excel-compatible CSV
+    ssh -p $SshPort $SshUser@$NasAddress "$fullFindCommand" | Set-Content -Path $OutputFile -Encoding Utf8BOM
 
-    Write-Host "[SUCCESS] Excel-compatible CSV file has been created."
+    Write-Host "[SUCCESS] File list saved to: $OutputFile"
 }
 catch {
-    Write-Host "[ERROR] An error occurred during the operation: $_"
+    Write-Host "[ERROR] An error occurred: $_"
 }
 
 Read-Host "Operation complete. Press Enter to exit."
